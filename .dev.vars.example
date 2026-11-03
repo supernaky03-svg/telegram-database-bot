@@ -1,0 +1,15 @@
+# Copy this file to .dev.vars for local development.
+# Never commit .dev.vars or share bot tokens.
+
+BOT_TOKEN=123456789:REPLACE_WITH_REAL_TOKEN
+TELEGRAM_WEBHOOK_SECRET=replace_with_32_or_more_random_letters_numbers_dash_underscore
+
+# Required channel links and IDs. Add LINK3 + CHANNEL_ID3 for more channels.
+LINK1=https://t.me/+REPLACE_INVITE_1
+CHANNEL_ID1=-1001111111111
+CHANNEL_TITLE1=Required Channel 1
+LINK2=https://t.me/+REPLACE_INVITE_2
+CHANNEL_ID2=-1002222222222
+CHANNEL_TITLE2=Required Channel 2
+
+# Alternative to LINK1/CHANNEL_ID1 style: configure JOIN_CHANNELS_JSON instead.

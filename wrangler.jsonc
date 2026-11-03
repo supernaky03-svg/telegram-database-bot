@@ -1,0 +1,52 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "telegram-file-store-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-03",
+
+  "vars": {
+    "BOT_USERNAME": "SET_YOUR_BOT_USERNAME",
+    "SOURCE_CHANNEL_ID": "REPLACE_SOURCE_CHANNEL_ID",
+    "STORE_CHANNEL_ID": "REPLACE_STORE_CHANNEL_ID",
+    "REPOST_CHANNEL_ID": "REPLACE_REPOST_CHANNEL_ID",
+    "CHANNEL_ID1": "REPLACE_REQUIRED_CHANNEL_ID_1",
+    "CHANNEL_TITLE1": "Required Channel 1",
+    "CHANNEL_ID2": "REPLACE_REQUIRED_CHANNEL_ID_2",
+    "CHANNEL_TITLE2": "Required Channel 2"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "telegram-file-store-bot-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DELIVERY_CLEANUP",
+        "class_name": "DeliveryCleanup"
+      }
+    ]
+  },
+
+  "exports": {
+    "DeliveryCleanup": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+
+  "triggers": {
+    "crons": [
+      "0 * * * *"
+    ]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

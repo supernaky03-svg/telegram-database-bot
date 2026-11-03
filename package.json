@@ -1,0 +1,22 @@
+{
+  "name": "telegram-file-store-bot-cloudflare",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram File Store Bot rebuilt for Cloudflare Workers, D1, and Durable Objects",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create telegram-file-store-bot-db",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/handlers.js && node --check src/delivery-cleanup.js && node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
