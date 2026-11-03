@@ -14,7 +14,7 @@ test("does not remove punctuation or use fuzzy matching", () => {
   assert.notEqual(normalizeCaption("Movie 1"), normalizeCaption("Movie 2"));
 });
 
-test("recognizes Telegram video and video document posts", () => {
+test("recognizes Telegram video and video-document posts only", () => {
   assert.equal(isVideoPost({ video: { file_id: "x" } }), true);
   assert.equal(isVideoPost({ document: { mime_type: "video/mp4" } }), true);
   assert.equal(isVideoPost({ document: { mime_type: "application/pdf" } }), false);

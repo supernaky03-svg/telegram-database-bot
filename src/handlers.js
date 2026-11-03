@@ -1,9 +1,5 @@
 import { normalizeCaption, isVideoPost } from "./lib/normalize.js";
-import {
-  getBotUsername,
-  getChannelIds,
-  getJoinChannels
-} from "./lib/config.js";
+import { getBotUsername, getChannelIds, getJoinChannels } from "./lib/config.js";
 import {
   createDownloadToken,
   isValidDownloadToken,
@@ -15,14 +11,19 @@ import {
   finishStorePost,
   findLatestSourceMatch,
   recordSourcePost,
+  rememberPendingStore,
+  listPendingStoresForCaption,
+  listRetryablePendingStores,
   createOrGetDownload,
   updateDownloadRepost,
   getDownload,
-  consumePendingSource
+  consumePendingSource,
+  deletePendingStore
 } from "./lib/database.js";
 import { telegram, safeDeleteMessage } from "./lib/telegram.js";
 
 const DOWNLOAD_TTL_MS = 3 * 60 * 60 * 1000;
+const SOURCE_BATCH_LIMIT = 10;
 
 function isJoined(member) {
   if (!member || typeof member !== "object") return false;
@@ -58,10 +59,7 @@ async function checkMembership(userId, env) {
 function buildJoinKeyboard(membership, payload) {
   const rows = [];
   for (const channel of [...membership.missing, ...membership.unknown]) {
-    rows.push([{
-      text: `📢 ${channel.title}`,
-      url: channel.link
-    }]);
+    rows.push([{ text: `📢 ${channel.title}`, url: channel.link }]);
   }
   const callbackValue = payload ? `jc_${payload}` : "jc_home";
   rows.push([{
@@ -73,26 +71,16 @@ function buildJoinKeyboard(membership, payload) {
 
 async function sendJoinGate(chatId, userId, env, payload = null) {
   const membership = await checkMembership(userId, env);
-
   if (membership.allJoined) return membership;
 
-  const keyboard = buildJoinKeyboard(membership, payload);
-  let text;
-
-  if (membership.unknown.length > 0) {
-    text =
-      "⚠️ Channel membership ကို လောလောဆယ် အတည်မပြုနိုင်သေးပါ။\n\n" +
-      "Bot ကို သက်ဆိုင်ရာ Channel များတွင် Administrator အဖြစ် ထည့်ထားကြောင်း စစ်ဆေးပြီးနောက် Check Again ကို နှိပ်ပါ။";
-  } else {
-    text =
-      "🔒 Bot ကို အသုံးပြုရန် အောက်ပါ Channel များကို Join လုပ်ထားရန် လိုအပ်ပါသည်။\n\n" +
-      "Join မလုပ်ရသေးသော Channel များကိုသာ ပြထားပါတယ်။ Join ပြီးလျှင် Check Again ကို နှိပ်ပါ။";
-  }
+  const text = membership.unknown.length > 0
+    ? "⚠️ Channel membership ကို အတည်မပြုနိုင်သေးပါ။\n\nBot ကို သက်ဆိုင်ရာ Channel များတွင် Administrator ထည့်ထားကြောင်း စစ်ဆေးပြီး Check Again ကိုနှိပ်ပါ။"
+    : "🔒 Bot ကို အသုံးပြုရန် အောက်ပါ Channel များကို Join လုပ်ထားရန် လိုအပ်ပါသည်။\n\nJoin မလုပ်ရသေးသော Channel များကိုသာ ပြထားပါတယ်။ Join ပြီးလျှင် Check Again ကိုနှိပ်ပါ။";
 
   await telegram(env, "sendMessage", {
     chat_id: chatId,
     text,
-    reply_markup: keyboard,
+    reply_markup: buildJoinKeyboard(membership, payload),
     disable_web_page_preview: true
   });
   return membership;
@@ -101,9 +89,7 @@ async function sendJoinGate(chatId, userId, env, payload = null) {
 async function sendWelcome(chatId, env) {
   await telegram(env, "sendMessage", {
     chat_id: chatId,
-    text:
-      "မင်္ဂလာပါ။ ✅ Channel membership အတည်ပြုပြီးပါပြီ။\n\n" +
-      "Movie Review post ထဲက 📥 Download ခလုတ်ကို နှိပ်ပြီး Video ကို ရယူနိုင်ပါတယ်။"
+    text: "မင်္ဂလာပါ။ ✅ Channel membership အတည်ပြုပြီးပါပြီ။\n\nMovie Review post ထဲက 📥 Download ခလုတ်ကိုနှိပ်ပြီး Video ရယူနိုင်ပါတယ်။"
   });
 }
 
@@ -116,6 +102,7 @@ async function deliverDownload(userId, token, env) {
     return;
   }
 
+  // Membership is deliberately rechecked for every download, including Get File Again.
   const membership = await checkMembership(userId, env);
   if (!membership.allJoined) {
     await sendJoinGate(userId, userId, env, `dl_${token}`);
@@ -154,10 +141,7 @@ async function deliverDownload(userId, token, env) {
   try {
     const warning = await telegram(env, "sendMessage", {
       chat_id: userId,
-      text:
-        "⚠️ သတိပေးချက်\n\n" +
-        "ဒီ Video ကို ပို့ပြီးနောက် ၃ နာရီပြည့်လျှင် Bot Chat ထဲမှ အလိုအလျောက် ဖျက်ပါမည်။\n" +
-        "အမြဲတမ်းသိမ်းထားလိုပါက ဖျက်မသွားမီ Saved Messages ထဲသို့ Save သို့မဟုတ် Forward လုပ်ထားပါ။"
+      text: "⚠️ သတိပေးချက်\n\nဒီ Video ကို ပို့ပြီးနောက် ၃ နာရီပြည့်လျှင် Bot Chat ထဲမှ အလိုအလျောက် ဖျက်ပါမည်။ ဖျက်မသွားမီ သိမ်းထားလိုပါက Saved Messages သို့ Save/Forward လုပ်ထားပါ။"
     });
     warningMessageId = warning.message_id;
   } catch (error) {
@@ -206,12 +190,10 @@ async function handlePrivateMessage(message, env) {
       });
       return;
     }
-
     if (payload.type === "download") {
       await deliverDownload(message.from.id, payload.token, env);
       return;
     }
-
     const membership = await sendJoinGate(message.chat.id, message.from.id, env);
     if (membership.allJoined) await sendWelcome(message.chat.id, env);
     return;
@@ -220,7 +202,7 @@ async function handlePrivateMessage(message, env) {
   if (text.startsWith("/help")) {
     await telegram(env, "sendMessage", {
       chat_id: message.chat.id,
-      text: "အသုံးပြုရန် — သက်ဆိုင်ရာ Review Channel post ထဲက 📥 Download ခလုတ်ကို နှိပ်ပါ။ Channel Join လိုအပ်ပါက Bot က ပြပေးပါမည်။"
+      text: "အသုံးပြုရန် — Movie Review Channel post ထဲက 📥 Download ခလုတ်ကိုနှိပ်ပါ။ Channel Join လိုအပ်ပါက Bot က ပြပေးပါမည်။"
     });
   }
 }
@@ -237,13 +219,9 @@ async function handleJoinCheck(callback, env) {
   });
 
   if (token && !isValidDownloadToken(token)) {
-    await telegram(env, "sendMessage", {
-      chat_id: userId,
-      text: "❌ Download link မမှန်ကန်ပါ။"
-    });
+    await telegram(env, "sendMessage", { chat_id: userId, text: "❌ Download link မမှန်ကန်ပါ။" });
     return;
   }
-
   if (token) {
     await deliverDownload(userId, token, env);
     return;
@@ -254,8 +232,7 @@ async function handleJoinCheck(callback, env) {
 }
 
 async function handleCallback(callback, env) {
-  const data = String(callback?.data || "");
-  if (data.startsWith("jc_")) {
+  if (String(callback?.data || "").startsWith("jc_")) {
     await handleJoinCheck(callback, env);
     return;
   }
@@ -265,113 +242,74 @@ async function handleCallback(callback, env) {
   });
 }
 
-async function handleSourcePost(message, sourceChannelId, env) {
-  const video = isVideoPost(message);
-  const caption = typeof message.caption === "string" ? message.caption : "";
-  const normalized = video ? normalizeCaption(caption) : "";
-
-  await recordSourcePost(
-    env.DB,
-    sourceChannelId,
-    message,
-    Math.floor(Date.now() / 1000),
-    normalized,
-    video
-  );
-}
-
-async function handleStorePost(message, storeChannelId, sourceChannelId, repostChannelId, env) {
-  if (!isVideoPost(message)) return;
-
-  const normalized = normalizeCaption(typeof message.caption === "string" ? message.caption : "");
-  if (!normalized) {
-    console.log("Store video skipped: empty caption", message.message_id);
-    return;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const storeMessageId = Number(message.message_id);
-  const claim = await claimStorePost(env.DB, storeChannelId, storeMessageId, now);
-  if (!claim.claimed) {
-    if (claim.busy) throw new Error(`Store post ${storeMessageId} is already being processed; retry`);
-    console.log("Duplicate Store post ignored", storeMessageId);
-    return;
-  }
-
+async function publishClaimedStoreVideo(storeRecord, storeChannelId, sourceChannelId, repostChannelId, env) {
   let mapping = null;
+  const now = Math.floor(Date.now() / 1000);
+
   try {
-    const source = await findLatestSourceMatch(env.DB, sourceChannelId, normalized, now);
+    const source = await findLatestSourceMatch(
+      env.DB,
+      sourceChannelId,
+      storeRecord.caption_normalized,
+      now
+    );
 
-    if (!source) {
-      await finishStorePost(env.DB, storeChannelId, storeMessageId, {
-        status: "skipped_no_match"
+    // Keep it pending: a later-arriving Source post, or a delayed prior Review
+    // post, may complete the association before the seven-day expiry.
+    if (!source || !source.preceding_review_message_id) {
+      await finishStorePost(env.DB, storeChannelId, storeRecord.store_message_id, {
+        status: "pending_match",
+        errorText: !source ? "Waiting for a matching Source video" : "Latest matching Source video has no indexed preceding post yet"
       }, now);
-      console.log("Store post skipped: no caption match", storeMessageId);
-      return;
+      return { status: "pending_match" };
     }
 
-    if (!source.preceding_review_message_id) {
-      await finishStorePost(env.DB, storeChannelId, storeMessageId, {
-        status: "skipped_no_review",
-        errorText: "Latest matching Source video has no indexed preceding post"
-      }, now);
-      console.log("Store post skipped: latest matching Source video has no preceding review", {
-        storeMessageId,
-        sourceMessageId: source.source_message_id
-      });
-      return;
-    }
-
-    const token = createDownloadToken();
     mapping = await createOrGetDownload(env.DB, {
       store_channel_id: storeChannelId,
-      store_message_id: storeMessageId,
+      store_message_id: storeRecord.store_message_id,
       source_channel_id: sourceChannelId,
       source_message_id: source.source_message_id
-    }, token, now);
+    }, createDownloadToken(), now);
 
-    // If the same Store message was already successfully reposted, do not send again.
     if (mapping.repost_message_id) {
-      await finishStorePost(env.DB, storeChannelId, storeMessageId, {
+      await finishStorePost(env.DB, storeChannelId, storeRecord.store_message_id, {
         status: "success",
         repostMessageId: mapping.repost_message_id,
         downloadToken: mapping.token
       }, now);
+      await deletePendingStore(env.DB, storeChannelId, storeRecord.store_message_id);
       await consumePendingSource(env.DB, sourceChannelId, source.source_message_id);
-      return;
+      return { status: "success", duplicatePrevented: true };
     }
 
-    const botUsername = getBotUsername(env);
-    const startLink = makeStartLink(botUsername, mapping.token);
+    const startLink = makeStartLink(getBotUsername(env), mapping.token);
     const reposted = await telegram(env, "copyMessage", {
       chat_id: repostChannelId,
       from_chat_id: sourceChannelId,
       message_id: Number(source.preceding_review_message_id),
       reply_markup: {
-        inline_keyboard: [[{
-          text: "📥 Download",
-          url: startLink
-        }]]
+        inline_keyboard: [[{ text: "📥 Download", url: startLink }]]
       }
     });
 
     await updateDownloadRepost(env.DB, mapping.token, reposted.message_id);
-    await finishStorePost(env.DB, storeChannelId, storeMessageId, {
+    await finishStorePost(env.DB, storeChannelId, storeRecord.store_message_id, {
       status: "success",
       repostMessageId: reposted.message_id,
       downloadToken: mapping.token
     }, Math.floor(Date.now() / 1000));
-
+    await deletePendingStore(env.DB, storeChannelId, storeRecord.store_message_id);
     await consumePendingSource(env.DB, sourceChannelId, source.source_message_id);
 
     console.log("Review reposted", {
-      storeMessageId,
+      storeMessageId: storeRecord.store_message_id,
       sourceVideoMessageId: source.source_message_id,
       reviewMessageId: source.preceding_review_message_id,
       repostMessageId: reposted.message_id
     });
+    return { status: "success" };
   } catch (error) {
-    await finishStorePost(env.DB, storeChannelId, storeMessageId, {
+    await finishStorePost(env.DB, storeChannelId, storeRecord.store_message_id, {
       status: "failed",
       downloadToken: mapping?.token ?? null,
       errorText: error?.message || error
@@ -380,9 +318,133 @@ async function handleStorePost(message, storeChannelId, sourceChannelId, repostC
   }
 }
 
+async function processPendingStoresForCaption(storeChannelId, sourceChannelId, repostChannelId, caption, env) {
+  if (!caption) return { attempted: 0, completed: 0 };
+  const now = Math.floor(Date.now() / 1000);
+  const pending = await listPendingStoresForCaption(
+    env.DB,
+    storeChannelId,
+    caption,
+    now,
+    SOURCE_BATCH_LIMIT
+  );
+  let attempted = 0;
+  let completed = 0;
+
+  for (const record of pending) {
+    const claim = await claimStorePost(env.DB, storeChannelId, Number(record.store_message_id), now);
+    if (!claim.claimed) continue;
+    attempted++;
+    const result = await publishClaimedStoreVideo(
+      record,
+      storeChannelId,
+      sourceChannelId,
+      repostChannelId,
+      env
+    );
+    if (result.status === "success") completed++;
+  }
+  return { attempted, completed };
+}
+
+async function handleSourcePost(message, sourceChannelId, storeChannelId, repostChannelId, env) {
+  const video = isVideoPost(message);
+  const caption = typeof message.caption === "string" ? message.caption : "";
+  const normalized = video ? normalizeCaption(caption) : "";
+  const result = await recordSourcePost(
+    env.DB,
+    sourceChannelId,
+    message,
+    Math.floor(Date.now() / 1000),
+    normalized,
+    video
+  );
+
+  // Source-first is immediate. A delayed preceding post also re-triggers the
+  // Store matcher for the next video whose review association was just fixed.
+  const changedCaption = result.videoCaption || result.followupCaption;
+  if (changedCaption) {
+    await processPendingStoresForCaption(
+      storeChannelId,
+      sourceChannelId,
+      repostChannelId,
+      changedCaption,
+      env
+    );
+  }
+}
+
+async function handleStorePost(message, storeChannelId, sourceChannelId, repostChannelId, env) {
+  if (!isVideoPost(message)) return;
+  const caption = typeof message.caption === "string" ? message.caption : "";
+  const normalized = normalizeCaption(caption);
+  const now = Math.floor(Date.now() / 1000);
+  const storeMessageId = Number(message.message_id);
+  const claim = await claimStorePost(env.DB, storeChannelId, storeMessageId, now);
+
+  if (!claim.claimed) {
+    if (claim.busy) throw new Error(`Store post ${storeMessageId} is already being processed; retry later`);
+    console.log("Duplicate Store post ignored", storeMessageId);
+    return;
+  }
+
+  if (!normalized) {
+    await finishStorePost(env.DB, storeChannelId, storeMessageId, {
+      status: "skipped_empty_caption",
+      errorText: "Store video has no usable caption"
+    }, now);
+    return;
+  }
+
+  const record = {
+    store_channel_id: storeChannelId,
+    store_message_id: storeMessageId,
+    caption_normalized: normalized,
+    caption_original: caption
+  };
+  await rememberPendingStore(env.DB, record, now);
+  await publishClaimedStoreVideo(record, storeChannelId, sourceChannelId, repostChannelId, env);
+}
+
+/** Cron recovery pass for pending Store posts and transient Telegram failures. */
+export async function processRetryableStorePosts(env) {
+  const channels = getChannelIds(env);
+  const now = Math.floor(Date.now() / 1000);
+  const candidates = await listRetryablePendingStores(
+    env.DB,
+    channels.store,
+    channels.source,
+    now,
+    SOURCE_BATCH_LIMIT
+  );
+  let claimed = 0;
+  let completed = 0;
+
+  for (const record of candidates) {
+    const claim = await claimStorePost(env.DB, channels.store, Number(record.store_message_id), now);
+    if (!claim.claimed) continue;
+    claimed++;
+    try {
+      const result = await publishClaimedStoreVideo(
+        record,
+        channels.store,
+        channels.source,
+        channels.repost,
+        env
+      );
+      if (result.status === "success") completed++;
+    } catch (error) {
+      console.error("Pending Store retry failed", {
+        storeMessageId: record.store_message_id,
+        error: String(error?.message || error)
+      });
+    }
+  }
+  return { candidates: candidates.length, claimed, completed };
+}
+
 export async function handleTelegramUpdate(update, env) {
   const channelIds = getChannelIds(env);
-
   if (update?.message) {
     await handlePrivateMessage(update.message, env);
     return;
@@ -395,7 +457,13 @@ export async function handleTelegramUpdate(update, env) {
     const message = update.channel_post;
     const chatId = String(message.chat?.id ?? "");
     if (chatId === channelIds.source) {
-      await handleSourcePost(message, channelIds.source, env);
+      await handleSourcePost(
+        message,
+        channelIds.source,
+        channelIds.store,
+        channelIds.repost,
+        env
+      );
     } else if (chatId === channelIds.store) {
       await handleStorePost(
         message,
@@ -411,6 +479,6 @@ export async function handleTelegramUpdate(update, env) {
 export async function sendDownloadStartHelp(chatId, env) {
   await telegram(env, "sendMessage", {
     chat_id: chatId,
-    text: "Movie Review Channel ထဲက Download ခလုတ်ကို နှိပ်ပြီး Bot ကို Start လုပ်ပါ။"
+    text: "Movie Review Channel ထဲက Download ခလုတ်ကိုနှိပ်ပြီး Bot ကို Start လုပ်ပါ။"
   });
 }

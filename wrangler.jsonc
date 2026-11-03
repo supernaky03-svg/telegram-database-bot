@@ -5,14 +5,7 @@
   "compatibility_date": "2026-11-03",
 
   "vars": {
-    "BOT_USERNAME": "Team_Cipher_Bot",
-    "SOURCE_CHANNEL_ID": "-1004384999893",
-    "STORE_CHANNEL_ID": "-1003883182630",
-    "REPOST_CHANNEL_ID": "-1003915914738",
-    "CHANNEL_ID1": "-1003915914738",
-    "CHANNEL_TITLE1": "Required Channel 1",
-    "CHANNEL_ID2": "-1004384999893",
-    "CHANNEL_TITLE2": "Required Channel 2"
+    "BOT_USERNAME": "Team_Cipher_Bot"
   },
 
   "d1_databases": [
@@ -42,7 +35,7 @@
 
   "triggers": {
     "crons": [
-      "0 * * * *"
+      "*/5 * * * *"
     ]
   },
 

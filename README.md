@@ -1,353 +1,268 @@
-# Telegram File Store Bot — Cloudflare Edition 2.0
+# Telegram File Store Bot — Cloudflare Production Candidate v2.1.0
 
-Cloudflare Workers + D1 + SQLite-backed Durable Objects ကို အသုံးပြုပြီး Telegram Channel များမှ Review post ကို အလိုအလျောက် repost လုပ်ကာ Download link ပေးသည့် Bot ဖြစ်သည်။
+Cloudflare Workers + D1 + SQLite-backed Durable Object ကိုအသုံးပြုထားသော Telegram File Store Bot ဖြစ်သည်။ Worker သည် Telegram webhook ကိုလက်ခံပြီး Source Channel မှ Review post ကို Store Channel video caption ဖြင့် match လုပ်ကာ Repost Channel သို့ Download ခလုတ်နှင့်အတူ copy လုပ်ပေးသည်။
 
-**Video file များကို Cloudflare R2 ထဲသို့ မတင်ပါ။** Video များကို Store Channel ထဲတွင်သာ ထားပြီး D1 တွင် mapping/metadata များကို သိမ်းထားသည်။
+> **Production သတိပြုရန်:** source code tests နှင့် SQLite migration simulation ကိုစစ်ဆေးထားသည်။ သင့် Cloudflare account၊ D1 database၊ Telegram bot/channel permissions များနှင့် live end-to-end deployment ကို ဒီ project ထုတ်လုပ်ချိန်တွင် မစမ်းသပ်ရသေးပါ။ Production စတင်အသုံးမပြုမီ အောက်ပါ deployment checklist ကို ပြီးမြောက်စေရမည်။
 
-## 1. ပါဝင်သောလုပ်ဆောင်ချက်များ
+## 1. v2.1.0 တွင် ပြင်ဆင်ထားသည့်အချက်များ
 
-- မီနူးအဟောင်း Movies / Series / Ongoing / Bollywood ကို ဖယ်ရှားထားသည်။
-- Bot အသုံးမပြုမီ Required Channel အားလုံး Join ဖြစ်/မဖြစ် `getChatMember` ဖြင့် စစ်ဆေးသည်။
-- Join မလုပ်ရသေးသော Channel များကိုသာ inline URL buttons အဖြစ် ပြသည်။
-- `✅ Joined — Check Again` ကိုနှိပ်လျှင် ပြန်စစ်သည်။
-- Download စတင်တိုင်း membership ကို ပြန်စစ်သည်။
-- Source Channel မှ post အသစ်များကို `channel_post` update အဖြစ် index လုပ်သည်။
-- Source video caption နှင့် Store video caption ကို normalized exact-match ဖြင့် နှိုင်းယှဉ်သည်။
-- တူညီသော Source video များစွာရှိလျှင် message ID အကြီးဆုံးဖြစ်သော နောက်ဆုံး video ကို ရွေးသည်။
-- ရွေးထားသော Source video post ၏ ချက်ချင်းအပေါ်က Channel post ကို Repost Channel သို့ copy လုပ်သည်။
-- Repost အောက်တွင် Bot deep link ပါသော `📥 Download` button ထည့်သည်။
-- Download ပြုလုပ်ရာတွင် Store Channel ထဲက မူရင်း video ကို user ထံ copy ပို့သည်။
-- Video နှင့် warning message ကို ၃ နာရီအကြာ Durable Object Alarm ဖြင့် ဖျက်သည်။
-- ဖျက်ပြီးနောက် `📥 Get File Again` button ပို့သည်။
-- Duplicate protection record များကို ၇၂ နာရီထားသည်။
-- Pending Source index များကို ၁၆၈ နာရီ (၇ ရက်) ထားသည်။ Match/repost အောင်မြင်လျှင် သက်ဆိုင်ရာ pending record ကို ချက်ချင်းဖျက်သည်။
-- Scheduled cleanup ကို ၁ နာရီတစ်ကြိမ် Cron Trigger ဖြင့် လုပ်သည်။
-- Webhook secret header စစ်ဆေးခြင်း၊ update deduplication နှင့် retry lease ပါဝင်သည်။
+- **Store-first / Source-first matching:** Store video အရင်ရောက်လည်း ၇ ရက် Pending ထားပြီး နောက်မှ Source matching video ရောက်လာလျှင် ပြန်စစ်သည်။ Source video အရင်ရောက်ပြီး Store video နောက်မှရောက်လည်း ချက်ချင်း match လုပ်သည်။
+- **Latest Source video rule:** Caption တူညီသော Source video များစွာရှိလျှင် Telegram `message_id` အကြီးဆုံးဖြစ်သော နောက်ဆုံး video ကိုသာ ရွေးသည်။ အဲဒီ latest video အတွက် preceding Review post မရှိလျှင် အဟောင်း video ၏ Review သို့ fallback မလုပ်ဘဲ Pending ထားသည်။
+- **Delayed/out-of-order Source events:** နောက်မှရောက်လာသော ပိုနီးစပ်သည့် preceding Source post ကို သိမ်းဆည်းပြီး Pending Store matching ကို ထပ်မံလုပ်သည်။
+- **Scheduled recovery:** ၅ မိနစ်တစ်ကြိမ် cron ဖြင့် match ရှိလာပြီးသား Pending Store jobs နှင့် transient failures များကို ပြန်စစ်သည်။
+- **Deploy-time D1 migrations:** `npm run deploy` သည် `wrangler d1 migrations apply DB --remote` ပြီးမှ `wrangler deploy` ကိုလုပ်သည်။ Migration အသစ်ရှိလျှင် table/index များကို deploy အတွင်း အလိုအလျောက်တည်ဆောက်/ပြောင်းလဲပေးသည်။ D1 database resource ကို ပထမတစ်ကြိမ်သာ သီးခြားဖန်တီးထားရန်လိုသည်။
+- **Secret-based configuration:** Core channel IDs နှင့် Join Channel IDs/links များကို Worker runtime Secrets မှဖတ်သည်။ Repository ထဲတွင် channel IDs မထည့်ထားတော့ပါ။
+- **Duplicate protection & retry:** Telegram update ၇၂ နာရီ၊ Store post ၇၂ နာရီ၊ processing lease ၁၂၀ စက္ကန့်၊ retryable failed records ပါဝင်သည်။
+- **3-hour delivery cleanup:** Durable Object Alarm ဖြင့် user ထံပို့ထားသော video နှင့် warning ကို ၃ နာရီပြည့်လျှင် ဖျက်သည်။ Telegram API/Cloudflare အခက်အခဲရှိလျှင် cleanup ကို retry လုပ်သည်။
+- **Join verification:** Bot ကိုအသုံးပြုချိန်နှင့် download တစ်ကြိမ်စီတွင် Required Join Channel အားလုံးကို ထပ်စစ်သည်။ User က Channel တစ်ခုခုမှ ထွက်သွားလျှင် Download မပေးပါ။
+- ယခင် `🎬 Movies`, `📺 Series`, `🔥 Ongoing`, `💃 Bollywood` reply menu buttons မပါဝင်ပါ။
 
 ## 2. Architecture
 
 ```text
-Telegram Source Channel
-        │ channel_post updates
-        ▼
-Cloudflare Worker ───────► D1: source_events + pending_source_posts
-        │
-        │ Store video arrives
-        ▼
-Caption normalization + exact match
-        │
-        ├── no match ─────► skip (no repost)
-        │
-        └── latest match
-                  │
-                  ▼
-        Copy preceding Review post
-                  │
-                  ▼
-        Telegram Repost Channel
-        [📥 Download URL button]
-                  │
-                  ▼
-        Bot /start dl_<token>
-                  │
-                  ▼
-        Check all required memberships
-                  │
-                  ▼
-        D1 mapping → copy Store video to user
-                  │
-                  ▼
-        Durable Object Alarm (+3 hours)
-                  │
-                  ├── delete copied video
-                  ├── delete warning
-                  └── send Get File Again button
+Telegram Source Channel ─┐
+                         ├─> Cloudflare Worker webhook ─> D1
+Telegram Store Channel ──┘               │                 │
+                                         │                 ├─ Source event index
+                                         │                 ├─ Pending Store queue
+                                         │                 ├─ Duplicate / lease records
+                                         │                 └─ Download token mapping
+                                         │
+                                         ├─ copy Review post to Repost Channel
+                                         └─ Durable Object Alarm
+                                                └─ delete delivered video after 3 hours
 ```
 
-### Components
+Resources:
 
-| Component | အသုံးပြုပုံ |
+- **Worker:** `telegram-file-store-bot`
+- **D1 binding:** `DB`
+- **D1 database name:** `telegram-file-store-bot-db`
+- **Durable Object binding:** `DELIVERY_CLEANUP`
+- **Durable Object class:** `DeliveryCleanup` (SQLite-backed)
+- **Webhook route:** `/telegram/webhook`
+- **Health route:** `/health`
+
+`wrangler.jsonc` တွင် လက်ရှိ repository ကအသုံးပြုနေသော D1 database ID ကို ထည့်ထားသည်။ တခြား Cloudflare account/database ကိုသုံးမည်ဆိုလျှင် `database_id` ကို သင့် D1 database UUID ဖြင့် အစားထိုးပါ။
+
+## 3. Deploy လုပ်တာနဲ့ D1 tables auto-create ဖြစ်စေရန်
+
+Cloudflare Workers Builds ဖြင့် Git repository ချိတ်ထားပါက Dashboard တွင်:
+
+1. **Workers & Pages → telegram-file-store-bot → Settings → Build** သို့ဝင်ပါ။
+2. **Build command:** `npm run check`
+3. **Deploy command:** `npm run deploy`
+4. **Root directory:** `/` (မသတ်မှတ်ထားလျှင် repository root)
+5. Git branch ကို `main` သတ်မှတ်ပါ။ Preview builds ကို separate Preview D1 database/config မပြင်ဆင်မချင်း ပိတ်ထားပါ။
+
+`npm run deploy` သည် အောက်ပါအဆင့်နှစ်ခုကို အစဉ်လိုက်လုပ်ဆောင်သည်:
+
+```bash
+npm run db:migrate:remote
+wrangler deploy
+```
+
+### အရေးကြီး — Workers Builds API Token permission
+
+Workers Builds က အလိုအလျောက်ဖန်တီးပေးသော default token တွင် Workers Scripts Edit ပါသော်လည်း D1 permission မပါဝင်နိုင်ပါ။ ဒီ project ရဲ့ `npm run deploy` က remote D1 migration ကိုတိုက်ရိုက် run လုပ်သောကြောင့် Build အသုံးပြုမည့် API token မှာ **D1 → Edit** permission မဖြစ်မနေပါရမည်။ မပါလျှင် migration အဆင့်မှာရပ်ပြီး Worker deploy မဆက်လုပ်ပါ။
+
+Cloudflare Dashboard မှ **My Profile → API Tokens** သို့ဝင်ပြီး Workers deployment အတွက်လိုအပ်သော permission နှင့် **Account → D1 → Edit** ကိုပါခွင့်ပြုထားသော User API Token တစ်ခုကိုရွေး/ပြင်ဆင်ပါ။ ထို token ကို **Workers & Pages → telegram-file-store-bot → Settings → Build → API token** တွင်သတ်မှတ်ပါ။ Token အပြည့်အစုံကို GitHub၊ chat သို့မဟုတ် README ထဲ မထည့်ပါနှင့်။ Workers Builds ၏ default token permissions နှင့် API token permissions အကြောင်း Cloudflare docs ကိုကြည့်ပါ။
+
+`wrangler d1 migrations apply` သည် မလျှောက်ရသေးသော migration များကိုသာ apply လုပ်သဖြင့် deploy တစ်ကြိမ်စီတွင် table အသစ်တွေကို ထပ်ခါတလဲလဲ create မလုပ်ပါ။ Cloudflare Workers Builds တွင် Deploy command ကို `package.json` script တစ်ခုသို့ သတ်မှတ်နိုင်သည်။
+
+> D1 database resource ကို Cloudflare account အတွင်း ပထမဆုံးတစ်ကြိမ် create လုပ်ထားရမည်။ Table/index creation နှင့် schema updates များကိုသာ deploy command က auto-run လုပ်ပေးသည်။ D1 resource မရှိသေးပါက `npm run db:create` ကိုတစ်ကြိမ် run လုပ်ပြီး ထွက်လာသည့် database UUID ကို `wrangler.jsonc` ထဲထည့်ပါ။
+
+## 4. Cloudflare Runtime Secrets / Variables
+
+Cloudflare Dashboard → Worker → **Settings → Variables & Secrets** မှာ **Production** environment အတွက် ထည့်ပါ။ Key များသည် case-sensitive ဖြစ်သည်။
+
+### မဖြစ်မနေထည့်ရမည့် Secrets
+
+| Secret name | Value |
 |---|---|
-| Cloudflare Worker | Telegram webhook, caption matching, join verification, Bot API |
-| D1 | Pending Source index, download tokens, deduplication |
-| Durable Object (SQLite) | ၃ နာရီအကြာ ဖျက်ရန် job queue + Alarm |
-| Cron Trigger | Expired records cleanup |
-| Telegram Channels | Video files နှင့် Review posts ကို သိမ်းထားရာနေရာ |
-
-## 3. အရေးကြီးသော Telegram ကန့်သတ်ချက်
-
-Telegram Bot API တွင် Channel history အဟောင်းများကို လွတ်လပ်စွာ search/fetch လုပ်နိုင်သော method မရှိပါ။ ထို့ကြောင့် ဒီ project သည် Bot ကို Source Channel တွင် Admin အဖြစ် ထည့်ပြီးနောက် ရောက်လာသော post အသစ်များကိုသာ index လုပ်နိုင်သည်။
-
-**အကောင်းဆုံးအစီအစဉ်:** Bot ကို Source Channel တွင် Admin ထည့်ပါ → Worker deploy လုပ်ပါ → Webhook set လုပ်ပါ → ထို့နောက် Source Channel တွင် Review + Video post အသစ်များ ဝင်လာစေပါ။
-
-Bot မရောက်ခင်ကတည်းက Source Channel ထဲတွင် ရှိနေသော post အဟောင်းများကို ဒီ Bot တစ်ခုတည်းဖြင့် ပြန် index မလုပ်နိုင်ပါ။
-
-## 4. Cloudflare resources ဖန်တီးခြင်း
-
-Ubuntu / Termux / PC တွင် Node.js 20+ နှင့် npm ရှိရန်လိုသည်။
-
-```bash
-unzip telegram-file-store-bot-cloudflare.zip
-cd telegram-file-store-bot-cloudflare
-npm install
-```
-
-### 4.1 D1 Database ဖန်တီးရန်
-
-```bash
-npx wrangler d1 create telegram-file-store-bot-db
-```
-
-Command output ထဲက `database_id` ကို copy လုပ်ပြီး `wrangler.jsonc` ထဲရှိ
-
-```json
-"database_id": "REPLACE_WITH_D1_DATABASE_ID"
-```
-
-နေရာတွင် အစားထိုးပါ။
-
-### 4.2 Database migration
-
-Local test database:
-
-```bash
-npx wrangler d1 migrations apply DB --local
-```
-
-Production database:
-
-```bash
-npx wrangler d1 migrations apply DB --remote
-```
-
-**Production database ကို migration မလုပ်ခင် `wrangler.jsonc` ထဲရှိ database ID မှန်ကြောင်း စစ်ပါ။**
-
-## 5. Cloudflare Variables / Secrets
-
-### 5.1 `wrangler.jsonc` ထဲတွင် ပြင်ရန်
-
-| Variable | ထည့်ရန် |
-|---|---|
-| `BOT_USERNAME` | Bot username (`@` မပါ) |
+| `BOT_TOKEN` | BotFather ထံမှ Telegram Bot Token |
+| `TELEGRAM_WEBHOOK_SECRET` | Random letters/numbers/underscore/dash ပါသော secret string (1–256 chars) |
 | `SOURCE_CHANNEL_ID` | Source Channel numeric ID (`-100...`) |
 | `STORE_CHANNEL_ID` | Store Channel numeric ID (`-100...`) |
 | `REPOST_CHANNEL_ID` | Repost Channel numeric ID (`-100...`) |
+| `JOIN_CHANNEL1_ID` | ပထမ Join Channel numeric ID |
+| `JOIN_CHANNEL1_LINK` | User Join လုပ်ရန် `https://t.me/...` invite/channel link |
 
-Channel ID များသည် `@username` မဟုတ်ဘဲ numeric ID ဖြစ်ရမည်။
+### Join Channel ထပ်ထည့်ရန်
 
-### 5.2 Cloudflare Secrets ထည့်ရန်
+`JOIN_CHANNEL2_ID`, `JOIN_CHANNEL2_LINK`, `JOIN_CHANNEL2_TITLE` အဖြစ် ဆက်ထည့်ပါ။ အများဆုံး 30 channels အထိ support လုပ်သည်။ `TITLE` သည် optional ဖြစ်ပြီး မထည့်လျှင် `Required Channel n` ကို သုံးမည်။
 
-```bash
-npx wrangler secret put BOT_TOKEN
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
-npx wrangler secret put LINK1
-npx wrangler secret put LINK2
+```text
+JOIN_CHANNEL1_ID
+JOIN_CHANNEL1_LINK
+JOIN_CHANNEL1_TITLE
+JOIN_CHANNEL2_ID
+JOIN_CHANNEL2_LINK
+JOIN_CHANNEL2_TITLE
+...
+JOIN_CHANNEL30_ID
+JOIN_CHANNEL30_LINK
+JOIN_CHANNEL30_TITLE
 ```
 
-တစ်ခုချင်းစီ command 실행 လုပ်ပြီး တောင်းလာသောအခါ value ထည့်ပါ။
-
-`TELEGRAM_WEBHOOK_SECRET` ကို ခန့်မှန်းရခက်သော random value သုံးပါ။ Telegram လက်ခံသောစာလုံးများမှာ `A-Z`, `a-z`, `0-9`, `_`, `-` ဖြစ်သည်။
-
-### 5.3 Channel Join Secrets
-
-သင်သတ်မှတ်ထားသော LINK1, LINK2 ပုံစံကို တိုက်ရိုက်ထောက်ပံ့ထားသည်။
-
-Cloudflare Secrets ထဲတွင်:
-
-```bash
-npx wrangler secret put LINK1
-npx wrangler secret put LINK2
-```
-
-`wrangler.jsonc` ထဲရှိ `vars` အောက်မှာ ID နှင့် ခေါင်းစဉ် ထည့်ပါ။
+`JOIN_CHANNELS_JSON` Secret တစ်ခုတည်းဖြင့်လည်း configure လုပ်နိုင်သည် (အဲဒီအခါ `JOIN_CHANNELn_*` keys မလိုပါ):
 
 ```json
-"CHANNEL_ID1": "-1001111111111",
-"CHANNEL_TITLE1": "Required Channel 1",
-"CHANNEL_ID2": "-1002222222222",
-"CHANNEL_TITLE2": "Required Channel 2"
+[
+  {
+    "channel_id": "-1001111111111",
+    "title": "News Channel",
+    "link": "https://t.me/+INVITE_CODE"
+  },
+  {
+    "channel_id": "-1002222222222",
+    "title": "Movie Updates",
+    "link": "https://t.me/movie_updates"
+  }
+]
 ```
 
-တတိယ Channel ထပ်ထည့်မည်ဆိုလျှင် `LINK3`, `CHANNEL_ID3`, `CHANNEL_TITLE3` အဖြစ် ဆက်ထည့်ပါ။ `CHANNEL_TITLE` မထည့်လျှင် default အမည်သုံးမည်။ `LINKn` နဲ့ `CHANNEL_IDn` နှစ်ခုစလုံး မဖြစ်မနေလိုအပ်သည်။
+`BOT_USERNAME` ကို Secret အဖြစ်မလိုပါ။ လက်ရှိ `wrangler.jsonc` တွင် Worker Variable အဖြစ် `Team_Cipher_Bot` သတ်မှတ်ထားသည်။ အခြား bot သုံးမည်ဆိုလျှင် ပြောင်းပါ။
 
-အစားထိုးနည်းအနေဖြင့် `JOIN_CHANNELS_JSON` Secret တစ်ခုတည်းကိုလည်း သုံးနိုင်သည်။
+**မှတ်ချက်:** Channel IDs နှင့် invite links များသည် Bot Token လို cryptographic secrets မဟုတ်သော်လည်း သင်ရွေးချယ်ထားသည့်အတိုင်း Cloudflare Secrets ထဲတွင်ထားနိုင်သည်။ `BOT_TOKEN` နှင့် `TELEGRAM_WEBHOOK_SECRET` ကိုတော့ Secret အဖြစ်သာထားပါ။
 
-```json
-[{"channel_id":"-1001111111111","title":"Required Channel 1","link":"https://t.me/+INVITE_CODE_1"},{"channel_id":"-1002222222222","title":"Required Channel 2","link":"https://t.me/+INVITE_CODE_2"}]
-```
+## 5. Telegram Channel permissions
 
-- `channel_id` = membership စစ်မည့် Channel ID
-- `title` = User မြင်ရမည့် အမည်
-- `link` = User Join လုပ်ရန် invite link
-- Channel တစ်ခုစီအတွက် bot ကို Administrator ထည့်ထားရမည်။
-- Bot admin မဖြစ်လျှင် `getChatMember` ဖြင့် အခြား user ၏ membership ကို အာမခံစစ်မရပါ။
+Bot ကို သက်ဆိုင်ရာ Channel များတွင် Admin ထည့်ပါ။
 
-## 6. Telegram Bot ကို Channel များတွင် ထည့်ရန်
-
-Bot ကို အောက်ပါ permission များဖြင့် Admin ထည့်ပါ။
-
-| Channel | လိုအပ်ချက် |
+| Channel role | Bot permission |
 |---|---|
-| Source Channel | Admin ဖြစ်ရမည်။ New channel posts ကို လက်ခံရန် |
-| Store Channel | Admin ဖြစ်ရမည်။ New video posts ကို လက်ခံရန်၊ message ကို copy လုပ်နိုင်ရန် |
-| Repost Channel | Admin ဖြစ်ရမည်။ Post messages permission လိုအပ်သည် |
-| Required Join Channels | `getChatMember` အတွက် Admin ဖြစ်ရမည် |
+| Source Channel | Admin ဖြစ်ရမည်၊ `channel_post` updates ရရှိရန် |
+| Store Channel | Admin ဖြစ်ရမည်၊ new video posts ရရှိပြီး `copyMessage` လုပ်နိုင်ရန် |
+| Repost Channel | Admin ဖြစ်ရမည်၊ Post Messages permission ပါရမည် |
+| Required Join Channels | `getChatMember` ဖြင့် membership စစ်နိုင်ရန် Admin ဖြစ်ရမည် |
 
-Required Join Channel များသည် Source / Store / Repost Channel များနှင့် မတူနိုင်ပါ။ Channel တစ်ခုတည်းဖြစ်လျှင် ID တူညီစွာ ထည့်နိုင်သော်လည်း `SOURCE_CHANNEL_ID`, `STORE_CHANNEL_ID`, `REPOST_CHANNEL_ID` သုံးခုကတော့ တစ်ခုနှင့်တစ်ခု မတူရပါ။
+Telegram Bot API သည် bot က chat တစ်ခုတွင် Admin မဟုတ်ပါက အခြား user ၏ membership ကို စိတ်ချစွာစစ်နိုင်မည်မဟုတ်ပါ။
 
-## 7. Local development
+## 6. Source / Store post format
 
-Local secrets file ပြုလုပ်ရန်:
+### Source Channel
 
-```bash
-cp .dev.vars.example .dev.vars
+Review post တစ်ခုကို အရင်တင်ပြီး **ချက်ချင်းနောက် post** အဖြစ် video ကို caption ဖြင့်တင်ပါ။
+
+```text
+[Review post]
+[Video post — caption: Example Movie 2026]
 ```
 
-`.dev.vars` ထဲက BOT_TOKEN, webhook secret, JOIN_CHANNELS_JSON ကို ပြင်ပါ။ `.dev.vars` ကို GitHub သို့ မတင်ပါနှင့်။
+Bot သည် Source Channel ၏ အရင်ဆုံး preceding post ID ကို Review post ID အဖြစ်သိမ်းသည်။ Review နှင့် video ကြားတွင် အခြား post တစ်ခုရှိလျှင် အဲဒီအနီးဆုံး post ကိုသာ Review အဖြစ်ယူမည်။
 
-Local test:
+### Store Channel
+
+Video ကို Source video နှင့် caption တူညီစွာတင်ပါ။
+
+```text
+[Video post — caption: Example Movie 2026]
+```
+
+Matching အောင်မြင်ပါက Source video ၏ Review post ကို Repost Channel သို့ copy လုပ်ပြီး `📥 Download` inline button ပေါင်းထည့်မည်။
+
+### Caption comparison
+
+- Unicode NFKC normalization
+- Case-insensitive
+- Leading/trailing spaces ဖယ်ရှားခြင်း
+- အပို space များနှင့် line endings ညှိခြင်း
+- Zero-width characters ဖယ်ရှားခြင်း
+- Punctuation ကို မဖယ်ရှားပါ
+- Fuzzy matching မလုပ်ပါ
+- Multiple Source video captions တူပါက message ID အကြီးဆုံးကိုသာ ယူသည်
+- Latest Source video မှာ preceding Review မရှိလျှင် အဟောင်း video ၏ Review ကို fallback မလုပ်ပါ
+
+## 7. Store-first and Source-first recovery
+
+**Upgrade note:** v2.0 တွင် `skipped_no_match` / `skipped_no_review` ဖြစ်ခဲ့သော Store post များ၏ caption ကို D1 ထဲ မသိမ်းခဲ့ပါ။ ထို့ကြောင့် v2.1 migration က အဲဒီအဟောင်းများကို ပြန်လည်ရှာဖွေ၍ match မလုပ်နိုင်ပါ။ ထို records များကို `legacy_skipped` အဖြစ်ထိန်းသိမ်းထားသည်။ v2.1 deploy ပြီးနောက် Store video ကို ပြန်တင်ပါက pending index ထဲသို့ ဝင်ပြီး ၇ ရက်အတွင်း Source post ရောက်လာချိန် ပြန်စစ်နိုင်ပါမည်။ Telegram Bot API က bot မရှိခင် channel history ကို ပြန်ရှာပေးခြင်းမရှိပါ။
+
+
+- **Source first:** Source Review + video ကို index လုပ်ထားပြီးနောက် Store video တင်လျှင် ချက်ချင်း match/repost လုပ်သည်။
+- **Store first:** Store video ကို Pending အဖြစ် ၇ ရက်ထားသည်။ နောက်မှ matching Source video ရောက်လာလျှင် Pending Store post ကို ပြန်စစ်သည်။
+- **Late preceding Source post:** Source update တစ်ခု နောက်ကျရောက်လာ၍ အရင် video ၏ nearest preceding post association ပြောင်းသွားပါက Pending matching ကို ထပ်လုပ်သည်။
+- **Transient failure:** Telegram API call ပျက်လျှင် `failed` အဖြစ်ထားပြီး webhook retry သို့မဟုတ် ၅ မိနစ် cron recovery ဖြင့် ပြန်ကြိုးစားသည်။
+- **Multiple Store posts:** Store channel/message ID တစ်ခုစီကို သီးခြား dedupe လုပ်သည်။ Caption တူသော်လည်း Store post ID မတူလျှင် တစ်ခုစီ processing လုပ်နိုင်သည်။
+
+## 8. User download flow
+
+1. User က Repost Channel ထဲက `📥 Download` ကိုနှိပ်သည်။
+2. Bot private chat ကိုဖွင့်ပြီး `/start` deep link မှ token ကို လက်ခံသည်။
+3. Required Join Channels အားလုံးကို စစ်သည်။ မ join ရသေးသော channel များကိုသာ button အဖြစ်ပြသည်။ Membership API မတုံ့ပြန်နိုင်သည့် channel များကိုလည်း unknown အဖြစ် ဖော်ပြပြီး ပြန်စစ်ခိုင်းသည်။
+4. User က Join ပြီး `Joined — Check Again` နှိပ်သည်။
+5. Membership ပြန်အောင်မြင်မှ Store Channel ထဲက file ကို private chat သို့ copy ပို့သည်။
+6. ၃ နာရီပြည့်လျှင် Durable Object Alarm က video နှင့် warning ကို delete လုပ်သည်။ ပြီးနောက် `📥 Get File Again` button ပါသော notification ပို့သည်။
+7. Get File Again ကိုနှိပ်တိုင်း membership ကို ထပ်စစ်သည်။
+
+Bot ကို User က အရင် `/start` လုပ်ထားခြင်း မရှိပါက Bot သည် User ကို အလိုအလျောက် private message စတင်ပို့မရပါ။ Download deep link ကို User ကနှိပ်ပြီး Start လုပ်ရသည်။
+
+## 9. Local development
 
 ```bash
+npm install
+cp .dev.vars.example .dev.vars
+# .dev.vars ကို သင့် test bot/channel IDs/links ဖြင့်ပြင်ပါ
+npm run db:migrate:local
 npm run check
 npm run dev
 ```
 
-Local Worker URL ကို Telegram webhook အဖြစ် ချိတ်ရန် public HTTPS tunnel လိုအပ်သည်။ Production deployment ကို အောက်ပါအတိုင်း လုပ်နိုင်သည်။
+`.dev.vars` ကို GitHub မတင်ပါနှင့်။ Local webhook စမ်းရန် public HTTPS tunnel တစ်ခုလိုသည်။ Local D1 နှင့် Remote D1 သည် သီးခြားဖြစ်သည်။
 
-## 8. Deploy
+## 10. Telegram webhook ချိတ်ရန်
 
-```bash
-npx wrangler deploy
-```
-
-Deploy အောင်မြင်လျှင် `https://<worker-name>.<subdomain>.workers.dev` ပုံစံ Worker URL ရမည်။
-
-Health check:
-
-```text
-https://<worker-name>.<subdomain>.workers.dev/health
-```
-
-`ok: true` ဖြစ်ရမည်။ `configError` ရှိလျှင် Worker variables / secrets / bindings ကို ပြန်စစ်ပါ။
-
-## 9. Telegram Webhook ချိတ်ရန်
-
-Terminal မှ:
+Worker deploy ပြီးရင်:
 
 ```bash
 node scripts/set-webhook.mjs
 ```
 
-အောက်ပါတို့ကို တောင်းပါမည်။
+Prompt တောင်းသည့်အတိုင်း Bot Token၊ Worker URL (`https://...workers.dev`) နှင့် `TELEGRAM_WEBHOOK_SECRET` ကိုရိုက်ထည့်ပါ။ Script သည် `message`, `channel_post`, `callback_query` updates များကိုသာလက်ခံရန် သတ်မှတ်သည်။ `max_connections: 1` ကို Source post order ထိန်းရန် အသုံးပြုထားသည်။
 
-- Telegram BOT_TOKEN
-- Worker URL
-- TELEGRAM_WEBHOOK_SECRET
-
-Script သည် `/telegram/webhook` endpoint သို့ ချိတ်ပြီး `message`, `channel_post`, `callback_query` updates များကိုသာ လက်ခံရန် သတ်မှတ်ပေးသည်။ `max_connections: 1` သုံးထားခြင်းကြောင့် Source Channel post ordering ကို ထိန်းသိမ်းရန် ကူညီသည်။
-
-## 10. အသုံးပြုပုံ
-
-### Source Channel ထဲတွင်
-
-Review post တစ်ခုကို အရင်တင်ပါ။ ထို့နောက် အဲဒီ Review နှင့် သက်ဆိုင်သည့် Video post ကို caption ဖြင့် တင်ပါ။
+Webhook status စစ်ရန်:
 
 ```text
-[Movie Review post]
-[Video post — caption: Example Movie 2026]
+https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo
 ```
 
-Bot သည် Video post ၏ caption နှင့် ချက်ချင်းအပေါ်က post ID ကို index လုပ်ထားမည်။
+တကယ့် Bot Token ပါသော URL ကို မည်သူ့ကိုမျှ မျှဝေပါနှင့်။
 
-### Store Channel ထဲတွင်
-
-Store Channel ထဲသို့ Video ကို caption တူညီစွာ တင်ပါ။
+## 11. Health check
 
 ```text
-[Video post — caption: Example Movie 2026]
+https://<worker-name>.<subdomain>.workers.dev/health
 ```
 
-Caption တူညီလျှင် Source Channel မှ နောက်ဆုံး matching video ကို ရွေးပြီး ၎င်း၏ အပေါ်က Review post ကို Repost Channel သို့ copy လုပ်မည်။ Repost အောက်တွင် Download button ပါလာမည်။
-
-### Download
-
-- User သည် Download ကိုနှိပ်လျှင် Bot private chat ကိုဖွင့်မည်။
-- Required Channel များကို Join မလုပ်ရသေးပါက လိုအပ်သည့် Channel များကိုသာ ပြမည်။
-- Join ပြီး `Joined — Check Again` နှိပ်လျှင် membership ပြန်စစ်ပြီး Download ကို ဆက်လုပ်မည်။
-- Video ကို user ထံ copy ပို့မည်။
-- ၃ နာရီအကြာ Video နှင့် warning ကို delete လုပ်မည်။
-- `Get File Again` button ကို ပြန်ပို့မည်။
-
-## 11. Caption matching rules
-
-- Unicode NFKC normalization
-- Case-insensitive comparison
-- Leading / trailing spaces ဖယ်ရှားခြင်း
-- အပို space များကို တစ်ခုတည်းအဖြစ် ပြောင်းခြင်း
-- Line ending ကို တစ်ပုံစံတည်းထားခြင်း
-- Zero-width characters ဖယ်ရှားခြင်း
-- Punctuation ကို မဖယ်ရှားပါ။
-- Fuzzy matching မလုပ်ပါ။
-- Matching Source video များစွာရှိလျှင် `source_message_id` အကြီးဆုံးကို ရွေးသည်။
-- အဲဒီနောက်ဆုံး matching video တွင် preceding post မရှိပါက ဒီ Store post ကို repost မလုပ်ဘဲ skip လုပ်သည်။
-- Store video ရောက်ချိန်တွင် Source match မရှိလျှင် repost မလုပ်ဘဲ skip လုပ်သည်။ နောက်မှ Source video တက်လာခြင်းကြောင့် အရင် skip ဖြစ်သော Store post ကို အလိုအလျောက် ပြန်မစစ်ပါ။
+`ok: true`, `database: true`, `deliveryCleanup: true` ဖြစ်ရမည်။ `configError` ရှိလျှင် runtime Secrets / D1 binding / Durable Object binding ကိုပြန်စစ်ပါ။
 
 ## 12. Retention policy
 
 | Data | Retention |
 |---|---:|
-| Duplicate protection: Store Message ID | 72 hours |
-| Telegram update dedup records | 72 hours |
-| Pending Source video index | 168 hours (7 days) |
-| Source event ordering index | 168 hours (7 days) |
-| Matched pending Source record | Successful repost ပြီးချင်း delete |
-| Download token mapping | Download button ကို ဆက်အသုံးပြုနိုင်သရွေ့ ထိန်းထား |
-| Delivered video + warning | 3 hours |
+| Telegram update duplicate records | 72 hours |
+| Store post duplicate records | 72 hours |
+| Pending Source video records | 7 days; successful match ပြီးလျှင် ချက်ချင်း delete |
+| Source event index | 7 days |
+| Pending Store video records | 7 days; successful repost ပြီးလျှင် ချက်ချင်း delete |
+| Processing lease | 120 seconds |
+| User-delivered video + warning | 3 hours |
+| Download token mapping | Repost Channel button အသုံးပြုနိုင်နေသရွေ့ ထားရှိ |
 
-Download mapping ကို automatic expiry မထားပါ။ အကြောင်းမှာ Repost Channel ထဲက Download button က အချိန်ကြာပြီးမှလည်း အလုပ်လုပ်စေရန်ဖြစ်သည်။ Store file ကို အပြီးဖျက်လိုက်ပါက သက်ဆိုင်ရာ download mapping ကို D1 မှလည်း ကိုယ်တိုင်ဖျက်ရမည်။
+Cloudflare runtime log retention ကို ဒီ application က သီးခြား ၇ ရက်အဖြစ်မသတ်မှတ်ထားပါ။ Dashboard ရှိ observability/logging retention policy သည် account/platform setting အပေါ်မူတည်သည်။ Application log များတွင် Bot Token သို့မဟုတ် webhook secret မထည့်ပါ။
 
-## 13. Troubleshooting
+## 13. Tests and deployment boundary
 
-### Membership အမြဲမအောင်မြင်
-- Bot သည် Required Join Channel တိုင်းတွင် Admin ဖြစ်ကြောင်းစစ်ပါ။
-- `channel_id` သည် numeric `-100...` ဖြစ်ကြောင်းစစ်ပါ။
-- Invite link နှင့် channel ID တို့သည် Channel တစ်ခုတည်းကို ရည်ညွှန်းကြောင်းစစ်ပါ။
+Run locally:
 
-### Source video ကို မတွေ့
-- Bot ကို Source Channel တွင် Admin ထည့်ပြီး webhook အောင်မြင်စွာချိတ်ထားကြောင်း စစ်ပါ။
-- Bot deploy မလုပ်မီ ရှိပြီးသား Source posts များကို Bot API ဖြင့် ပြန်ရှာမရပါ။
-- Source video နှင့် Store video caption တို့ကို normalization ပြီးနောက် တိတိကျကျ တူညီရမည်။
-- Source post အစဉ်မှာ Review post အရင်၊ Video post နောက် ဖြစ်ရမည်။
+```bash
+npm run check
+```
 
-### Review post မတက်
-- Source video ၏ ချက်ချင်းအပေါ်က post ကိုသာယူသည်။
-- Latest matching Source video ၏ အပေါ်က post ကို Bot က index မလုပ်နိုင်ခဲ့လျှင် skip ဖြစ်နိုင်သည်။
-- Repost Channel တွင် bot ကို `Post Messages` permission ပါသော Admin ထည့်ထားရမည်။
+CI တွင် syntax checks, Node tests, migration-file assertions နှင့် Wrangler dry-run ကိုလုပ်သည်။ SQLite in-memory migration simulation ကိုလည်း source package စစ်ဆေးစဉ် run လုပ်ထားသည်။ သို့သော် Telegram Bot API နှင့် live Cloudflare D1/Workers integration ကို real credentials မရှိဘဲ အာမခံမပေးနိုင်ပါ။ Production traffic မတင်မီ test channels တွင် Source-first, Store-first, user not joined, user leaves channel, 3-hour cleanup နှင့် Telegram API failure retry ကို စမ်းသပ်ပါ။
 
-### User ထံ file မပို့နိုင်
-- Store Channel ထဲက file ကို Bot က copy လုပ်နိုင်ကြောင်းစစ်ပါ။
-- User သည် Bot ကို `/start` လုပ်ထားရမည်။
-- Bot သည် user ကို ပထမဆုံး DM ပို့၍မရနိုင်သော Telegram ကန့်သတ်ချက်ကြောင့် Channel ထဲက Download URL ကိုနှိပ်ပြီး Bot ကို Start လုပ်ရန်လိုသည်။
+## 14. Reliability limitation
 
-### 3-hour deletion မဖြစ်
-- Durable Object binding `DELIVERY_CLEANUP` နဲ့ `DeliveryCleanup` export ရှိကြောင်း စစ်ပါ။
-- Deploy ပြီး `/health` မှာ `deliveryCleanup: true` ဖြစ်ရမည်။
-- Worker logs နှင့် Durable Object alarm execution logs ကိုစစ်ပါ။
+Telegram Bot API `copyMessage` အတွက် caller-controlled idempotency key မရှိပါ။ Telegram က repost ကို လက်ခံပြီး D1 ထဲ success status မရေးရသေးခင် Worker ရပ်သွားသည့် အလွန်ရှားပါးသောအခြေအနေ၌ retry လုပ်ရာ duplicate repost ဖြစ်နိုင်မှုကို ၁၀၀% ဖယ်ရှားမရပါ။ Unique Store message records, leases, retry state နှင့် ရှိပြီးသား download mapping ကို ပြန်အသုံးပြုခြင်းဖြင့် အန္တရာယ်ကို လျှော့ထားသည်။
 
-## 14. Reliability notes
-
-- Webhook ကို `X-Telegram-Bot-Api-Secret-Token` ဖြင့် ကာကွယ်ထားသည်။
-- `update_id` duplicate protection ပါသည်။
-- Store channel/message ID ကို composite primary key ဖြင့် ၇၂ နာရီ duplicate protection လုပ်ထားသည်။
-- Store processing row တွင် lease ပါသောကြောင့် Worker crash ဖြစ်သည့်အခါ stuck record ကို ပြန်ကြိုးစားနိုင်သည်။
-- Telegram Bot API ၏ `copyMessage` တွင် caller-provided idempotency key မရှိသဖြင့် Telegram ထံ copy အောင်မြင်ပြီး D1 ထဲ success record မရေးရသေးခင် Worker ရပ်သွားသည့် အလွန်ရှားပါးသောအခြေအနေ၌ duplicate repost ကို ၁၀၀% အာမခံကာ ကာကွယ်မရပါ။ Project သည် အန္တရာယ်ကို လျှော့ချရန် unique records, leases, download mapping reuse တို့ကို သုံးထားသည်။
-- Durable Object Alarm သည် at-least-once ဖြစ်သည်။ Deletion ကို idempotent လုပ်ထားပြီး failure ဖြစ်ပါက ပြန်စီစဉ်သည်။ Cloudflare maintenance / downstream API အခက်အခဲကြောင့် ၃ နာရီပြည့်ချိန်တွင် အနည်းငယ်နောက်ကျနိုင်သည်။
-- Telegram `deleteMessage` က ၄၈ နာရီအတွင်း ဖျက်ခွင့်ရှိပြီး project ၏ ၃ နာရီ deadline သည် ထိုကန့်သတ်ချက်အတွင်း ဖြစ်သည်။
-
-## 15. Security
-
-- Bot token၊ webhook secret၊ join channel configuration ကို Cloudflare Secrets ထဲတွင်သာထားပါ။
-- `.dev.vars` ကို မျှဝေခြင်း / GitHub တင်ခြင်း မလုပ်ပါနှင့်။
-- GitHub repository ထဲတွင် တကယ့် Bot Token မထည့်ပါနှင့်။
-- Download token သည် random URL-safe token ဖြစ်ပြီး raw Store Message ID ကို user-facing link ထဲတွင် မထည့်ပါ။
-- Bot သည် Required Join Channel တွင် membership ကို Download တစ်ကြိမ်စီ စစ်သည်။
+Durable Object Alarm နှင့် Telegram API တို့သည် real-time deadline အတိအကျမဟုတ်သဖြင့် ၃ နာရီပြည့်ပြီးနောက် Cloudflare/Telegram ပြဿနာကြောင့် delete အနည်းငယ်နောက်ကျနိုင်သည်။ Retry ပြန်လုပ်မည်။

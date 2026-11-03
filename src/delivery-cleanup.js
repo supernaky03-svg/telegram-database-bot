@@ -24,14 +24,14 @@ export class DeliveryCleanup {
       return new Response("Invalid JSON", { status: 400 });
     }
 
+    const warningId = job?.warning_message_id;
     if (
-      typeof job?.job_id !== "string" ||
-      !/^[a-f0-9-]{20,50}$/i.test(job.job_id) ||
+      typeof job?.job_id !== "string" || !/^[a-f0-9-]{20,50}$/i.test(job.job_id) ||
       !/^-?\d+$/.test(String(job.chat_id)) ||
-      !Number.isSafeInteger(Number(job.video_message_id)) ||
-      !Number.isFinite(Number(job.delete_at)) ||
-      typeof job.token !== "string" ||
-      !/^[A-Za-z0-9_-]{20,40}$/.test(job.token)
+      !Number.isSafeInteger(Number(job.video_message_id)) || Number(job.video_message_id) <= 0 ||
+      (warningId !== null && warningId !== undefined && (!Number.isSafeInteger(Number(warningId)) || Number(warningId) <= 0)) ||
+      !Number.isFinite(Number(job.delete_at)) || Number(job.delete_at) <= Date.now() ||
+      typeof job.token !== "string" || !/^[A-Za-z0-9_-]{20,40}$/.test(job.token)
     ) {
       return new Response("Invalid cleanup job", { status: 400 });
     }
@@ -41,9 +41,10 @@ export class DeliveryCleanup {
       job_id: job.job_id,
       chat_id: String(job.chat_id),
       video_message_id: Number(job.video_message_id),
-      warning_message_id: job.warning_message_id ? Number(job.warning_message_id) : null,
+      warning_message_id: warningId ? Number(warningId) : null,
       token: job.token,
       delete_at: Number(job.delete_at),
+      deleted: false,
       attempts: 0
     });
 
@@ -59,7 +60,6 @@ export class DeliveryCleanup {
     for (const job of jobs.values()) {
       if (earliest === null || job.delete_at < earliest) earliest = job.delete_at;
     }
-
     if (earliest === null) {
       await this.storage.deleteAlarm();
     } else {
@@ -72,26 +72,24 @@ export class DeliveryCleanup {
     const jobs = await this.storage.list({ prefix: JOB_PREFIX });
     const ordered = [...jobs.entries()].sort((a, b) => a[1].delete_at - b[1].delete_at);
 
-    for (const [key, job] of ordered) {
-      if (job.delete_at > now) continue;
+    for (const [key, originalJob] of ordered) {
+      if (originalJob.delete_at > now) continue;
+      let job = originalJob;
 
       try {
-        await safeDeleteMessage(this.env, job.chat_id, job.video_message_id);
-        await safeDeleteMessage(this.env, job.chat_id, job.warning_message_id);
+        if (!job.deleted) {
+          await safeDeleteMessage(this.env, job.chat_id, job.video_message_id);
+          await safeDeleteMessage(this.env, job.chat_id, job.warning_message_id);
+          job = { ...job, deleted: true };
+          await this.storage.put(key, job);
+        }
 
-        const username = getBotUsername(this.env);
-        const link = makeStartLink(username, job.token);
-
+        const startLink = makeStartLink(getBotUsername(this.env), job.token);
         await telegram(this.env, "sendMessage", {
           chat_id: job.chat_id,
-          text:
-            "🗑️ ဖိုင်ကို ၃ နာရီပြည့်သဖြင့် Bot Chat မှ အလိုအလျောက် ဖျက်ပြီးပါပြီ။\n\n" +
-            "ပြန်လည်ရယူလိုပါက အောက်ပါခလုတ်ကို နှိပ်ပါ။",
+          text: "🗑️ ၃ နာရီပြည့်သဖြင့် ဖိုင်ကို Bot Chat မှ အလိုအလျောက် ဖျက်ပြီးပါပြီ။\n\nပြန်လည်ရယူရန် အောက်ပါခလုတ်ကိုနှိပ်ပါ။",
           reply_markup: {
-            inline_keyboard: [[{
-              text: "📥 Get File Again",
-              url: link
-            }]]
+            inline_keyboard: [[{ text: "📥 Get File Again", url: startLink }]]
           }
         });
 
@@ -99,6 +97,7 @@ export class DeliveryCleanup {
       } catch (error) {
         console.error("Delivery cleanup job will retry", {
           jobId: job.job_id,
+          attempts: Number(job.attempts || 0) + 1,
           error: String(error?.message || error)
         });
         await this.storage.put(key, {

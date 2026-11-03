@@ -1,9 +1,7 @@
--- Telegram File Store Bot v2.0
--- Timestamps are Unix seconds.
--- Retention policy:
---   processed_store + telegram_updates: 72 hours
---   pending_source_posts + source_events: 168 hours
---   downloads: retained while the repost button is intended to remain usable
+-- Telegram File Store Bot base schema. All timestamps are Unix seconds.
+-- processed_store/update duplicate records: 72 hours.
+-- Source and pending records: 7 days.
+-- Download tokens stay available while their channel buttons are in use.
 
 CREATE TABLE IF NOT EXISTS telegram_updates (
     update_id INTEGER PRIMARY KEY,
@@ -11,9 +9,7 @@ CREATE TABLE IF NOT EXISTS telegram_updates (
     lease_until INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_telegram_updates_updated
-    ON telegram_updates(updated_at);
+CREATE INDEX IF NOT EXISTS idx_telegram_updates_updated ON telegram_updates(updated_at);
 
 CREATE TABLE IF NOT EXISTS source_events (
     source_channel_id TEXT NOT NULL,
@@ -25,9 +21,10 @@ CREATE TABLE IF NOT EXISTS source_events (
     preceding_review_message_id INTEGER,
     PRIMARY KEY (source_channel_id, source_message_id)
 );
-
 CREATE INDEX IF NOT EXISTS idx_source_events_previous
     ON source_events(source_channel_id, source_message_id DESC);
+CREATE INDEX IF NOT EXISTS idx_source_events_caption_latest
+    ON source_events(source_channel_id, caption_normalized, source_message_id DESC, created_at);
 
 CREATE TABLE IF NOT EXISTS pending_source_posts (
     source_channel_id TEXT NOT NULL,
@@ -39,7 +36,6 @@ CREATE TABLE IF NOT EXISTS pending_source_posts (
     expires_at INTEGER NOT NULL,
     PRIMARY KEY (source_channel_id, source_message_id)
 );
-
 CREATE INDEX IF NOT EXISTS idx_pending_source_caption_latest
     ON pending_source_posts(source_channel_id, caption_normalized, source_message_id DESC, expires_at);
 
@@ -59,9 +55,7 @@ CREATE TABLE IF NOT EXISTS processed_store (
     error_text TEXT,
     PRIMARY KEY (store_channel_id, store_message_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_processed_store_expiry
-    ON processed_store(expires_at);
+CREATE INDEX IF NOT EXISTS idx_processed_store_expiry ON processed_store(expires_at);
 
 CREATE TABLE IF NOT EXISTS downloads (
     token TEXT PRIMARY KEY,

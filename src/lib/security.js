@@ -1,7 +1,5 @@
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,40}$/;
-
 export function createDownloadToken() {
-  const bytes = new Uint8Array(20);
+  const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -9,22 +7,23 @@ export function createDownloadToken() {
 }
 
 export function isValidDownloadToken(token) {
-  return typeof token === "string" && TOKEN_PATTERN.test(token);
+  return typeof token === "string" && /^[A-Za-z0-9_-]{20,40}$/.test(token);
 }
 
-export function makeStartLink(botUsername, token) {
-  return `https://t.me/${botUsername}?start=dl_${token}`;
+export function makeStartLink(username, token) {
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(String(username || ""))) {
+    throw new Error("Invalid bot username");
+  }
+  if (!isValidDownloadToken(token)) throw new Error("Invalid download token");
+  return `https://t.me/${username}?start=dl_${token}`;
 }
 
-export function parseStartPayload(text) {
-  if (typeof text !== "string") return null;
-  const match = text.trim().match(/^\/start(?:@\w+)?(?:\s+([A-Za-z0-9_-]{1,64}))?/);
-  if (!match) return null;
-
-  const payload = match[1] ?? "";
-  if (!payload.startsWith("dl_")) return { type: "home" };
-
-  const token = payload.slice(3);
-  if (!isValidDownloadToken(token)) return { type: "invalid" };
-  return { type: "download", token };
+export function parseStartPayload(messageText) {
+  const parts = String(messageText || "").trim().split(/\s+/);
+  const command = parts[0] || "";
+  if (!/^\/start(?:@[A-Za-z0-9_]{5,32})?$/.test(command)) return { type: "invalid" };
+  if (!parts[1]) return { type: "home" };
+  if (!parts[1].startsWith("dl_")) return { type: "invalid" };
+  const token = parts[1].slice(3);
+  return isValidDownloadToken(token) ? { type: "download", token } : { type: "invalid" };
 }

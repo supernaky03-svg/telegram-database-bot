@@ -8,12 +8,8 @@ try {
   const workerUrl = (await rl.question("Worker URL (https://...workers.dev): ")).trim().replace(/\/+$/, "");
   const secret = (await rl.question("TELEGRAM_WEBHOOK_SECRET: ")).trim();
 
-  if (!token || !workerUrl || !secret) {
-    throw new Error("BOT_TOKEN, Worker URL and webhook secret are required");
-  }
-  if (!/^https:\/\/.+/.test(workerUrl)) {
-    throw new Error("Worker URL must start with https://");
-  }
+  if (!token || !workerUrl || !secret) throw new Error("BOT_TOKEN, Worker URL and webhook secret are required");
+  if (!/^https:\/\/.+/.test(workerUrl)) throw new Error("Worker URL must start with https://");
   if (!/^[A-Za-z0-9_-]{1,256}$/.test(secret)) {
     throw new Error("Webhook secret may contain only A-Z, a-z, 0-9, _ and - (1-256 chars)");
   }
@@ -29,11 +25,8 @@ try {
       drop_pending_updates: false
     })
   });
-
   const payload = await response.json();
-  if (!response.ok || payload?.ok !== true) {
-    throw new Error(payload?.description || `setWebhook failed (${response.status})`);
-  }
+  if (!response.ok || payload?.ok !== true) throw new Error(payload?.description || `setWebhook failed (${response.status})`);
 
   console.log("✅ Telegram webhook configured successfully.");
   console.log(`Webhook endpoint: ${workerUrl}/telegram/webhook`);

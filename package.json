@@ -1,17 +1,19 @@
 {
   "name": "telegram-file-store-bot-cloudflare",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
-  "description": "Telegram File Store Bot rebuilt for Cloudflare Workers, D1, and Durable Objects",
+  "description": "Production-oriented Telegram File Store Bot on Cloudflare Workers, D1, and Durable Objects",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "db:create": "wrangler d1 create telegram-file-store-bot-db",
+    "deploy": "npm run db:migrate:remote && wrangler deploy",
+    "deploy:worker-only": "wrangler deploy",
+    "db:create": "wrangler d1 create telegram-file-store-bot-db --location apac",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:migrations:list": "wrangler d1 migrations list DB --remote",
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/handlers.js && node --check src/delivery-cleanup.js && node --test"
+    "check": "node --check src/index.js && node --check src/handlers.js && node --check src/delivery-cleanup.js && node --check src/lib/config.js && node --check src/lib/database.js && node --check src/lib/telegram.js && node --check src/lib/normalize.js && node --check src/lib/security.js && node --check scripts/set-webhook.mjs && node --test"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

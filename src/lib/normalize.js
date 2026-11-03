@@ -1,7 +1,4 @@
-/**
- * Normalizes captions for exact comparison.
- * It intentionally does NOT remove punctuation or perform fuzzy matching.
- */
+/** Exact caption normalization. Punctuation remains significant; no fuzzy matching. */
 export function normalizeCaption(value) {
   if (typeof value !== "string") return "";
   return value
@@ -19,6 +16,5 @@ export function normalizeCaption(value) {
 export function isVideoPost(message) {
   if (!message || typeof message !== "object") return false;
   if (message.video) return true;
-  if (message.document?.mime_type?.toLowerCase().startsWith("video/")) return true;
-  return false;
+  return message.document?.mime_type?.toLowerCase().startsWith("video/") === true;
 }

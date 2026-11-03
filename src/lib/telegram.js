@@ -32,7 +32,7 @@ export async function telegram(env, method, body) {
 }
 
 export async function safeDeleteMessage(env, chatId, messageId) {
-  if (!messageId) return;
+  if (messageId === null || messageId === undefined || messageId === "") return;
   try {
     await telegram(env, "deleteMessage", {
       chat_id: chatId,
@@ -43,7 +43,8 @@ export async function safeDeleteMessage(env, chatId, messageId) {
     if (
       error?.errorCode === 400 &&
       (description.includes("message to delete not found") ||
-       description.includes("message identifier is not specified"))
+       description.includes("message identifier is not specified") ||
+       description.includes("message can't be deleted") && description.includes("already deleted"))
     ) {
       return;
     }

@@ -1,4 +1,5 @@
 const CHAT_ID_PATTERN = /^-?\d+$/;
+const MAX_JOIN_CHANNELS = 30;
 
 export function requiredString(env, key) {
   const value = env?.[key];
@@ -38,78 +39,88 @@ export function getBotUsername(env) {
   return username;
 }
 
+function validateJoinChannel(item, index, seen) {
+  const channelId = String(item?.channel_id ?? item?.id ?? "").trim();
+  const title = String(item?.title ?? `Required Channel ${index + 1}`).trim();
+  const link = String(item?.link ?? "").trim();
+
+  if (!CHAT_ID_PATTERN.test(channelId)) {
+    throw new Error(`Join channel ${index + 1}: channel_id must be a numeric Telegram chat ID`);
+  }
+  if (!title || title.length > 80) {
+    throw new Error(`Join channel ${index + 1}: title must be 1-80 characters`);
+  }
+
+  let url;
+  try {
+    url = new URL(link);
+  } catch {
+    throw new Error(`Join channel ${index + 1}: link is invalid`);
+  }
+  if (url.protocol !== "https:" || url.hostname !== "t.me" || url.pathname === "/") {
+    throw new Error(`Join channel ${index + 1}: link must be a valid https://t.me/ invite or channel URL`);
+  }
+  if (seen.has(channelId)) {
+    throw new Error(`Duplicate join channel_id: ${channelId}`);
+  }
+  seen.add(channelId);
+  return { channel_id: channelId, title, link };
+}
+
 export function getJoinChannels(env) {
-  let value = null;
-  const raw = typeof env?.JOIN_CHANNELS_JSON === "string"
+  const rawJson = typeof env?.JOIN_CHANNELS_JSON === "string"
     ? env.JOIN_CHANNELS_JSON.trim()
     : "";
+  let source = [];
 
-  if (raw) {
+  if (rawJson) {
     try {
-      value = JSON.parse(raw);
+      source = JSON.parse(rawJson);
     } catch {
       throw new Error("JOIN_CHANNELS_JSON must contain valid JSON");
     }
-    if (!Array.isArray(value) || value.length === 0) {
+    if (!Array.isArray(source) || source.length === 0) {
       throw new Error("JOIN_CHANNELS_JSON must be a non-empty JSON array");
     }
   } else {
-    // Preferred secret layout for users who want one Cloudflare Secret per link:
-    // LINK1 + CHANNEL_ID1 (+ optional CHANNEL_TITLE1), LINK2 + CHANNEL_ID2, ...
-    value = [];
-    for (let index = 1; index <= 30; index++) {
-      const link = String(env?.[`LINK${index}`] ?? "").trim();
-      const channelId = String(env?.[`CHANNEL_ID${index}`] ?? "").trim();
-      const title = String(env?.[`CHANNEL_TITLE${index}`] ?? `Required Channel ${index}`).trim();
+    for (let index = 1; index <= MAX_JOIN_CHANNELS; index++) {
+      const id = String(env?.[`JOIN_CHANNEL${index}_ID`] ?? "").trim();
+      const link = String(env?.[`JOIN_CHANNEL${index}_LINK`] ?? "").trim();
+      const title = String(
+        env?.[`JOIN_CHANNEL${index}_TITLE`] ?? env?.[`CHANNEL_TITLE${index}`] ?? `Required Channel ${index}`
+      ).trim();
 
-      if (!link && !channelId) continue;
-      if (!link || !channelId) {
-        throw new Error(`LINK${index} and CHANNEL_ID${index} must both be configured`);
+      // Backward-compatible aliases from v2.0. New deployments should use JOIN_CHANNELn_*.
+      const legacyId = String(env?.[`CHANNEL_ID${index}`] ?? "").trim();
+      const legacyLink = String(env?.[`LINK${index}`] ?? "").trim();
+      const resolvedId = id || legacyId;
+      const resolvedLink = link || legacyLink;
+
+      if (!resolvedId && !resolvedLink) continue;
+      if (!resolvedId || !resolvedLink) {
+        throw new Error(`JOIN_CHANNEL${index}_ID and JOIN_CHANNEL${index}_LINK must both be configured`);
       }
-      value.push({ channel_id: channelId, title, link });
+      source.push({ channel_id: resolvedId, title, link: resolvedLink });
     }
-    if (value.length === 0) {
-      throw new Error("Configure JOIN_CHANNELS_JSON or at least LINK1 + CHANNEL_ID1");
+    if (source.length === 0) {
+      throw new Error("Configure JOIN_CHANNELS_JSON or JOIN_CHANNEL1_ID + JOIN_CHANNEL1_LINK");
     }
   }
 
-  if (value.length > 30) {
-    throw new Error("Up to 30 required channels are supported");
+  if (source.length > MAX_JOIN_CHANNELS) {
+    throw new Error(`Up to ${MAX_JOIN_CHANNELS} required channels are supported`);
   }
 
   const seen = new Set();
-  return value.map((item, index) => {
-    const channelId = String(item?.channel_id ?? "").trim();
-    const title = String(item?.title ?? `Channel ${index + 1}`).trim();
-    const link = String(item?.link ?? "").trim();
-
-    if (!CHAT_ID_PATTERN.test(channelId)) {
-      throw new Error(`Join channel ${index + 1}: channel_id must be numeric`);
-    }
-    if (!title || title.length > 80) {
-      throw new Error(`Join channel ${index + 1}: title must be 1-80 characters`);
-    }
-
-    let url;
-    try {
-      url = new URL(link);
-    } catch {
-      throw new Error(`Join channel ${index + 1}: link is invalid`);
-    }
-    if (url.protocol !== "https:" || url.hostname !== "t.me") {
-      throw new Error(`Join channel ${index + 1}: link must be an https://t.me/ URL`);
-    }
-    if (seen.has(channelId)) {
-      throw new Error(`Duplicate join channel_id: ${channelId}`);
-    }
-    seen.add(channelId);
-    return { channel_id: channelId, title, link };
-  });
+  return source.map((item, index) => validateJoinChannel(item, index, seen));
 }
 
 export function validateEnvironment(env) {
   requiredString(env, "BOT_TOKEN");
-  requiredString(env, "TELEGRAM_WEBHOOK_SECRET");
+  const webhookSecret = requiredString(env, "TELEGRAM_WEBHOOK_SECRET");
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+    throw new Error("TELEGRAM_WEBHOOK_SECRET must contain only letters, numbers, _ or - (1-256 chars)");
+  }
   getBotUsername(env);
   getChannelIds(env);
   getJoinChannels(env);
