@@ -5,13 +5,13 @@
   "compatibility_date": "2026-11-03",
 
   "vars": {
-    "BOT_USERNAME": "SET_YOUR_BOT_USERNAME",
-    "SOURCE_CHANNEL_ID": "REPLACE_SOURCE_CHANNEL_ID",
-    "STORE_CHANNEL_ID": "REPLACE_STORE_CHANNEL_ID",
-    "REPOST_CHANNEL_ID": "REPLACE_REPOST_CHANNEL_ID",
-    "CHANNEL_ID1": "REPLACE_REQUIRED_CHANNEL_ID_1",
+    "BOT_USERNAME": "Team_Cipher_Bot",
+    "SOURCE_CHANNEL_ID": "-1004384999893",
+    "STORE_CHANNEL_ID": "-1003883182630",
+    "REPOST_CHANNEL_ID": "-1003915914738",
+    "CHANNEL_ID1": "-1003915914738",
     "CHANNEL_TITLE1": "Required Channel 1",
-    "CHANNEL_ID2": "REPLACE_REQUIRED_CHANNEL_ID_2",
+    "CHANNEL_ID2": "-1004384999893",
     "CHANNEL_TITLE2": "Required Channel 2"
   },
 
@@ -19,7 +19,7 @@
     {
       "binding": "DB",
       "database_name": "telegram-file-store-bot-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "0ea16d60-7e47-49a0-9325-68f5c33f8dcf",
       "migrations_dir": "migrations"
     }
   ],
